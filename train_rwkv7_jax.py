@@ -19,10 +19,10 @@ from tqdm.auto import tqdm
 
 class RWKVConfig:
     def __init__(self):
-        self.vocab_size = 65536
+        self.vocab_size = 256  # 修改为 256，与数据生成的 vocab_subset=100 匹配，避免梯度噪声
         self.n_embd = 512  # Channel dimensions
         self.n_layer = 4  # Number of layers (small for demo)
-        self.ctx_len = 128  # Context length
+        self.ctx_len = 64  # 降低上下文长度到 64，先从短序列开始测试记忆机制
         self.batch_size = 16  # Batch size
         self.head_size = 64  # v7 head size
         self.dim_ffn = int((self.n_embd * 3.5) // 32 * 32)
@@ -35,8 +35,8 @@ class RWKVConfig:
         self.gate_lora = 128
 
         # Training
-        self.lr_init = 4e-3
-        self.lr_final = 1e-5
+        self.lr_init = 1e-4  # 降低学习率，从 4e-3 改为 1e-4，避免梯度震荡
+        self.lr_final = 1e-6
         self.total_steps = 50000
         self.seed = 42
 
@@ -166,7 +166,7 @@ class RWKV_TMix_x070(nn.Module):
         self.w0 = self.param("w0", init_w0, (C,))
 
         self.w1 = self.param("w1", nn.initializers.zeros, (C, config.decay_lora))
-        self.w2 = self.param("w2", rwkv_orthogonal_init(0.1), (config.decay_lora, C))
+        self.w2 = self.param("w2", nn.initializers.zeros, (config.decay_lora, C))  # 改为 zeros，提高训练初期稳定性
 
         # a0
         def init_a0(key, shape):
@@ -178,7 +178,7 @@ class RWKV_TMix_x070(nn.Module):
 
         self.a0 = self.param("a0", init_a0, (C,))
         self.a1 = self.param("a1", nn.initializers.zeros, (C, config.aaa_lora))
-        self.a2 = self.param("a2", rwkv_orthogonal_init(0.1), (config.aaa_lora, C))
+        self.a2 = self.param("a2", nn.initializers.zeros, (config.aaa_lora, C))  # 改为 zeros，提高训练初期稳定性
 
         # v0
         def init_v0(key, shape):
@@ -188,11 +188,11 @@ class RWKV_TMix_x070(nn.Module):
 
         self.v0 = self.param("v0", init_v0, (C,))
         self.v1 = self.param("v1", nn.initializers.zeros, (C, config.mv_lora))
-        self.v2 = self.param("v2", rwkv_orthogonal_init(0.1), (config.mv_lora, C))
+        self.v2 = self.param("v2", nn.initializers.zeros, (config.mv_lora, C))  # 改为 zeros，提高训练初期稳定性
 
         # Gate
         self.g1 = self.param("g1", nn.initializers.zeros, (C, config.gate_lora))
-        self.g2 = self.param("g2", rwkv_orthogonal_init(0.1), (config.gate_lora, C))
+        self.g2 = self.param("g2", nn.initializers.zeros, (config.gate_lora, C))  # 改为 zeros，提高训练初期稳定性
 
         # Other scalars
         n = jnp.arange(C)
