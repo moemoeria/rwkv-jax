@@ -570,6 +570,15 @@ def main():
     print("Starting training...")
     start_time = time.time()
 
+    # Re-create schedule for logging
+    lr_schedule = optax.warmup_cosine_decay_schedule(
+        init_value=0.0,
+        peak_value=config.lr_init,
+        warmup_steps=10,
+        decay_steps=config.total_steps,
+        end_value=config.lr_final,
+    )
+
     for step in range(config.total_steps):
         rng, batch_rng = random.split(rng)
         inputs, targets = get_batch(config, batch_rng)
@@ -580,7 +589,7 @@ def main():
             elapsed = time.time() - start_time
             tokens_per_sec = (config.batch_size * config.ctx_len * (step + 1)) / elapsed
             print(
-                f"Step {step:04d} | Loss: {loss:.4f} | LR: {state.opt_state[1].hyperparams['learning_rate'].item():.2e} | Tok/s: {tokens_per_sec:.0f}"
+                f"Step {step:04d} | Loss: {loss:.4f} | LR: {lr_schedule(state.step).item():.2e} | Tok/s: {tokens_per_sec:.0f}"
             )
 
     print("Training finished.")
