@@ -10,6 +10,7 @@ import flax.linen as nn
 from flax.training import train_state
 import optax
 import numpy as np
+from tqdm.auto import tqdm
 
 # ==============================================================================
 # 1. Configuration & Constants
@@ -535,7 +536,11 @@ def create_train_state(rng, config):
         end_value=config.lr_final,
     )
 
-    optimizer = optax.adamw(learning_rate=schedule, weight_decay=0.1)
+    # 优化器链：先梯度裁剪，再AdamW
+    optimizer = optax.chain(
+        optax.clip_by_global_norm(1.0),  # 限制梯度范数为 1.0
+        optax.adamw(learning_rate=schedule, weight_decay=0.1, b1=0.9, b2=0.99)
+    )
     return train_state.TrainState.create(
         apply_fn=model.apply, params=params, tx=optimizer
     )
@@ -568,7 +573,6 @@ def main():
     print(f"Model Parameters: {param_count/1e6:.2f}M")
 
     print("Starting training...")
-    start_time = time.time()
 
     # Re-create schedule for logging
     lr_schedule = optax.warmup_cosine_decay_schedule(
@@ -579,19 +583,42 @@ def main():
         end_value=config.lr_final,
     )
 
-    for step in range(config.total_steps):
+    # 使用tqdm进度条，每10步更新一次
+    pbar = tqdm(range(config.total_steps), desc="Training", ncols=100)
+    
+    # 用于计算最近的速度（滑动窗口）
+    window_size = 10
+    recent_times = []
+    
+    for step in pbar:
+        step_start = time.time()
+        
         rng, batch_rng = random.split(rng)
         inputs, targets = get_batch(config, batch_rng)
 
         state, loss = train_step(state, inputs, targets)
+        
+        step_time = time.time() - step_start
+        recent_times.append(step_time)
+        
+        # 保持滑动窗口大小
+        if len(recent_times) > window_size:
+            recent_times.pop(0)
+        
+        # 每步更新进度条信息
+        if len(recent_times) > 0:
+            avg_step_time = sum(recent_times) / len(recent_times)
+            tokens_per_sec = (config.batch_size * config.ctx_len) / avg_step_time
+        else:
+            tokens_per_sec = 0.0
+            
+        pbar.set_postfix({
+            'loss': f'{loss:.4f}',
+            'lr': f'{lr_schedule(state.step).item():.2e}',
+            'tok/s': f'{tokens_per_sec:.0f}'
+        })
 
-        if step % 10 == 0:
-            elapsed = time.time() - start_time
-            tokens_per_sec = (config.batch_size * config.ctx_len * (step + 1)) / elapsed
-            print(
-                f"Step {step:04d} | Loss: {loss:.4f} | LR: {lr_schedule(state.step).item():.2e} | Tok/s: {tokens_per_sec:.0f}"
-            )
-
+    pbar.close()
     print("Training finished.")
 
     # Simple Inference Check
