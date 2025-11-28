@@ -37,7 +37,7 @@ class RWKVConfig:
         # Training
         self.lr_init = 4e-3
         self.lr_final = 1e-5
-        self.total_steps = 500
+        self.total_steps = 50000
         self.seed = 42
 
 
